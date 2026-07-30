@@ -1,0 +1,33 @@
+export type MessageLike = { id: string; role: string }
+
+export type EditablePart = {
+  id: string
+  messageID: string
+  sessionID: string
+  type: "text" | "reasoning"
+  text: string
+  [key: string]: unknown
+}
+
+export const assistantMessages = <Message extends MessageLike>(messages: readonly Message[]) =>
+  messages.filter((message) => message.role === "assistant")
+
+export const editableParts = (parts: readonly { type: string }[]): EditablePart[] =>
+  parts.filter(
+    (part): part is EditablePart =>
+      (part.type === "text" || part.type === "reasoning") &&
+      "id" in part &&
+      "messageID" in part &&
+      "sessionID" in part &&
+      "text" in part,
+  )
+
+export const partLabel = (part: EditablePart, index: number, total: number) => {
+  const kind = part.type === "reasoning" ? "Reasoning" : "Final response"
+  return total > 1 ? `${kind} ${index + 1}` : kind
+}
+
+export const preview = (text: string, width = 54) => {
+  const normalized = text.replace(/\s+/g, " ").trim()
+  return normalized.length > width ? `${normalized.slice(0, Math.max(0, width - 1))}…` : normalized || "(empty)"
+}

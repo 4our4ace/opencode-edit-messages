@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "opencode-edit-messages",
+  "version": "0.1.0",
+  "description": "OpenCode TUI plugin for editing persisted assistant message parts.",
+  "license": "MIT",
+  "type": "module",
+  "files": ["dist"],
+  "exports": {
+    "./tui": {
+      "types": "./dist/tui.d.ts",
+      "import": "./dist/tui.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "peerDependencies": {
+    "@opencode-ai/plugin": ">=1.18.9",
+    "@opentui/core": ">=0.4.5",
+    "@opentui/keymap": ">=0.4.5",
+    "@opentui/solid": ">=0.4.5",
+    "solid-js": "^1.9.12"
+  },
+  "devDependencies": {
+    "@opencode-ai/plugin": "^1.18.9",
+    "@opentui/core": "^0.4.5",
+    "@opentui/keymap": "^0.4.5",
+    "@opentui/solid": "^0.4.5",
+    "@types/node": "^22.0.0",
+    "solid-js": "^1.9.12",
+    "typescript": "^5.7.0"
+  }
+}
