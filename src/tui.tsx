@@ -22,6 +22,11 @@ const command = {
 
 type RouteParams = { sessionID?: string }
 type Column = "messages" | "editor"
+type ResponseElement = {
+  type: "text" | "reasoning"
+  label: "Final response" | "Reasoning"
+  parts: EditablePart[]
+}
 
 const currentSessionID = (api: TuiPluginApi) =>
   api.route.current.name === "session" ? api.route.current.params?.sessionID : undefined
@@ -34,10 +39,10 @@ function EditorRoute(props: { api: TuiPluginApi; params?: Record<string, unknown
   const [partIndex, setPartIndex] = createSignal(0)
   const [column, setColumn] = createSignal<Column>("messages")
   const [editing, setEditing] = createSignal(false)
-  const [draft, setDraft] = createSignal("")
+  const [drafts, setDrafts] = createSignal<string[]>([])
   const [saving, setSaving] = createSignal(false)
   const originalText = new Map<string, string>()
-  let textarea: TextareaRenderable | undefined
+  let textareas: TextareaRenderable[] = []
 
   const refresh = () => setRevision((value) => value + 1)
   const unsubs = [
@@ -55,30 +60,31 @@ function EditorRoute(props: { api: TuiPluginApi; params?: Record<string, unknown
     return assistantMessages(props.api.state.session.messages(sessionID) as readonly Message[]).filter((message) => finalParts(message).length > 0)
   })
   const selectedMessage = createMemo(() => messages()[Math.min(messageIndex(), Math.max(0, messages().length - 1))])
-  const parts = createMemo(() => {
+  const elements = createMemo<ResponseElement[]>(() => {
     revision()
     const message = selectedMessage()
     if (!message) return []
     const editable = messageParts(message).filter(
       (part) => part.type === "reasoning" || (part.type === "text" && part.ignored !== true && part.synthetic !== true),
     )
-    return [...editable.filter((part) => part.type === "text"), ...editable.filter((part) => part.type === "reasoning")]
+    const final = editable.filter((part) => part.type === "text")
+    const reasoning = editable.filter((part) => part.type === "reasoning")
+    return [
+      ...(final.length ? [{ type: "text" as const, label: "Final response" as const, parts: final }] : []),
+      ...(reasoning.length ? [{ type: "reasoning" as const, label: "Reasoning" as const, parts: reasoning }] : []),
+    ]
   })
-  const selectedPart = createMemo(() => parts()[Math.min(partIndex(), Math.max(0, parts().length - 1))])
+  const selectedElement = createMemo(() => elements()[Math.min(partIndex(), Math.max(0, elements().length - 1))])
 
   createEffect(() => {
-    for (const part of parts()) {
-      if (!originalText.has(part.id)) originalText.set(part.id, part.text)
+    for (const element of elements()) {
+      for (const part of element.parts) {
+        if (!originalText.has(part.id)) originalText.set(part.id, part.text)
+      }
     }
   })
 
   const messagePreview = (message: Message) => preview(finalParts(message).map((part) => part.text).join(" "), 26)
-  const elementLabel = (part: EditablePart, index: number) => {
-    if (part.type === "reasoning") return `Reasoning ${parts().slice(0, index + 1).filter((item) => item.type === "reasoning").length}`
-    const textCount = parts().filter((item) => item.type === "text").length
-    const textIndex = parts().slice(0, index + 1).filter((item) => item.type === "text").length
-    return textCount === 1 ? "Final response" : `Final response ${textIndex}`
-  }
   const moveMessage = (amount: number) => {
     const count = messages().length
     if (!count) return
@@ -86,44 +92,45 @@ function EditorRoute(props: { api: TuiPluginApi; params?: Record<string, unknown
     setPartIndex(0)
   }
   const movePart = (amount: number) => {
-    const count = parts().length
+    const count = elements().length
     if (!count) return
     setPartIndex((index) => Math.max(0, Math.min(count - 1, index + amount)))
   }
   const close = () => props.api.route.navigate("session", { sessionID })
   const focusEditor = () => {
-    if (!parts().length) return
+    if (!elements().length) return
     setColumn("editor")
   }
   const focusMessages = () => setColumn("messages")
   const startEditing = () => {
-    const part = selectedPart()
-    if (!part || saving()) return
-    setDraft(part.text)
+    const element = selectedElement()
+    if (!element || saving()) return
+    const values = element.parts.map((part) => part.text)
+    textareas = []
+    setDrafts(values)
     setEditing(true)
     setTimeout(() => {
-      textarea?.setText(part.text)
-      textarea?.focus()
+      textareas[0]?.focus()
     }, 0)
   }
   const save = async () => {
-    const part = selectedPart()
-    if (!part || saving()) return
+    const element = selectedElement()
+    if (!element || saving()) return
+    const values = drafts()
     setSaving(true)
     try {
-      if (draft() !== part.text) {
-        const result = await props.api.client.part.update({
-          sessionID,
-          messageID: part.messageID,
-          partID: part.id,
-          part: { ...part, text: draft() } as Part,
-        })
+      let changed = false
+      for (const [index, part] of element.parts.entries()) {
+        const text = values[index] ?? part.text
+        if (text === part.text) continue
+        changed = true
+        const result = await props.api.client.part.update({ sessionID, messageID: part.messageID, partID: part.id, part: { ...part, text } as Part })
         if (result.error) throw result.error
       }
       setEditing(false)
-      textarea?.blur()
+      textareas.forEach((textarea) => textarea.blur())
       refresh()
-      props.api.ui.toast({ variant: "success", title: "Response updated", message: draft() === part.text ? "No changes to save." : "Transcript part updated." })
+      props.api.ui.toast({ variant: "success", title: "Response updated", message: changed ? "Transcript parts updated." : "No changes to save." })
     } catch (error) {
       props.api.ui.toast({ variant: "error", title: "Could not update message", message: error instanceof Error ? error.message : "The server rejected the update." })
     } finally {
@@ -131,13 +138,16 @@ function EditorRoute(props: { api: TuiPluginApi; params?: Record<string, unknown
     }
   }
   const restore = async () => {
-    const part = selectedPart()
-    const text = part && originalText.get(part.id)
-    if (!part || text === undefined || saving()) return
+    const element = selectedElement()
+    if (!element || saving()) return
+    const originals = element.parts.map((part) => originalText.get(part.id))
+    if (originals.some((text) => text === undefined)) return
     setSaving(true)
     try {
-      const result = await props.api.client.part.update({ sessionID, messageID: part.messageID, partID: part.id, part: { ...part, text } as Part })
-      if (result.error) throw result.error
+      for (const [index, part] of element.parts.entries()) {
+        const result = await props.api.client.part.update({ sessionID, messageID: part.messageID, partID: part.id, part: { ...part, text: originals[index]! } as Part })
+        if (result.error) throw result.error
+      }
       refresh()
       props.api.ui.toast({ variant: "success", title: "Response restored", message: "Restored the text first loaded for this element." })
     } catch (error) {
@@ -204,9 +214,9 @@ function EditorRoute(props: { api: TuiPluginApi; params?: Record<string, unknown
         <box flexGrow={1} flexDirection="column" border borderColor={rightActive() ? skin.borderActive : skin.border} paddingLeft={2} paddingRight={2} backgroundColor={rightActive() ? undefined : skin.backgroundPanel}>
           <text fg={rightActive() ? skin.primary : skin.textMuted} paddingBottom={1}>Response elements</text>
           {selectedMessage() ? <>
-            <box flexDirection="column" paddingBottom={1}>{parts().map((part, index) => <box backgroundColor={index === partIndex() && rightActive() ? skin.primary : undefined}><text fg={index === partIndex() && rightActive() ? skin.selectedListItemText : skin.textMuted}>{elementLabel(part, index)}</text></box>)}</box>
+            <box flexDirection="column" paddingBottom={1}>{elements().map((element, index) => <box backgroundColor={index === partIndex() && rightActive() ? skin.primary : undefined}><text fg={index === partIndex() && rightActive() ? skin.selectedListItemText : skin.textMuted}>{element.label}</text></box>)}</box>
             <text fg={skin.textMuted} paddingBottom={1}>{editing() ? "Editing selected element" : "Preview (press Enter to edit)"}</text>
-            {editing() && selectedPart() ? <textarea ref={(value) => (textarea = value)} initialValue={draft()} width="100%" flexGrow={1} minHeight={8} wrapMode="word" textColor={skin.text} focusedTextColor={skin.text} backgroundColor={skin.backgroundElement} focusedBackgroundColor={skin.backgroundElement} cursorColor={skin.primary} onContentChange={() => setDraft(textarea?.plainText ?? "")} /> : <box flexGrow={1} minHeight={8} backgroundColor={skin.backgroundElement} paddingLeft={1} paddingRight={1} paddingTop={1}><text fg={rightActive() ? skin.text : skin.textMuted}>{selectedPart()?.text || "(empty)"}</text></box>}
+            {editing() && selectedElement() ? <box flexGrow={1} flexDirection="column" gap={1}>{selectedElement()!.parts.map((part, index) => <textarea ref={(value) => (textareas[index] = value)} initialValue={drafts()[index] ?? part.text} width="100%" flexGrow={1} minHeight={8} wrapMode="word" textColor={skin.text} focusedTextColor={skin.text} backgroundColor={skin.backgroundElement} focusedBackgroundColor={skin.backgroundElement} cursorColor={skin.primary} onContentChange={() => setDrafts((values) => values.map((value, valueIndex) => valueIndex === index ? textareas[index]?.plainText ?? "" : value))} />)}</box> : <box flexGrow={1} minHeight={8} backgroundColor={skin.backgroundElement} paddingLeft={1} paddingRight={1} paddingTop={1}><text fg={rightActive() ? skin.text : skin.textMuted}>{selectedElement()?.parts.map((part) => part.text).join("\n\n") || "(empty)"}</text></box>}
           </> : <text fg={skin.textMuted}>Select a final response to edit it and its reasoning.</text>}
         </box>
       </box>
