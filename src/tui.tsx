@@ -1,5 +1,5 @@
 /** @jsxImportSource @opentui/solid */
-import { createEffect, createMemo, createSignal, onCleanup } from "solid-js"
+import { createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js"
 import { useTerminalDimensions } from "@opentui/solid"
 import { useBindings } from "@opentui/keymap/solid"
 import type { TextareaRenderable } from "@opentui/core"
@@ -39,10 +39,12 @@ function EditorRoute(props: { api: TuiPluginApi; params?: Record<string, unknown
   const [partIndex, setPartIndex] = createSignal(0)
   const [column, setColumn] = createSignal<Column>("messages")
   const [editing, setEditing] = createSignal(false)
+  const [search, setSearch] = createSignal("")
   const [drafts, setDrafts] = createSignal<string[]>([])
   const [saving, setSaving] = createSignal(false)
   const originalText = new Map<string, string>()
   let textareas: TextareaRenderable[] = []
+  let searchInput: { focus: () => void; blur: () => void; isDestroyed?: boolean } | undefined
 
   const refresh = () => setRevision((value) => value + 1)
   const unsubs = [
@@ -59,7 +61,12 @@ function EditorRoute(props: { api: TuiPluginApi; params?: Record<string, unknown
     revision()
     return assistantMessages(props.api.state.session.messages(sessionID) as readonly Message[]).filter((message) => finalParts(message).length > 0)
   })
-  const selectedMessage = createMemo(() => messages()[Math.min(messageIndex(), Math.max(0, messages().length - 1))])
+  const filteredMessages = createMemo(() => {
+    const query = search().trim().toLocaleLowerCase()
+    if (!query) return messages()
+    return messages().filter((message) => finalParts(message).some((part) => part.text.toLocaleLowerCase().includes(query)))
+  })
+  const selectedMessage = createMemo(() => filteredMessages()[Math.min(messageIndex(), Math.max(0, filteredMessages().length - 1))])
   const elements = createMemo<ResponseElement[]>(() => {
     revision()
     const message = selectedMessage()
@@ -86,7 +93,7 @@ function EditorRoute(props: { api: TuiPluginApi; params?: Record<string, unknown
 
   const messagePreview = (message: Message) => preview(finalParts(message).map((part) => part.text).join(" "), 26)
   const moveMessage = (amount: number) => {
-    const count = messages().length
+    const count = filteredMessages().length
     if (!count) return
     setMessageIndex((index) => Math.max(0, Math.min(count - 1, index + amount)))
     setPartIndex(0)
@@ -99,9 +106,15 @@ function EditorRoute(props: { api: TuiPluginApi; params?: Record<string, unknown
   const close = () => props.api.route.navigate("session", { sessionID })
   const focusEditor = () => {
     if (!elements().length) return
+    searchInput?.blur()
     setColumn("editor")
   }
-  const focusMessages = () => setColumn("messages")
+  const focusMessages = () => {
+    setColumn("messages")
+    setTimeout(() => {
+      if (searchInput && !searchInput.isDestroyed) searchInput.focus()
+    }, 0)
+  }
   const startEditing = () => {
     const element = selectedElement()
     if (!element || saving()) return
@@ -163,6 +176,8 @@ function EditorRoute(props: { api: TuiPluginApi; params?: Record<string, unknown
     commands: [{ name: command.close, run: close }],
     bindings: [{ key: "ctrl+c", cmd: command.close, desc: "Exit editor" }],
   }))
+
+  onMount(() => focusMessages())
   useBindings(() => ({
     enabled: () => props.api.route.current.name === routeName && !editing() && column() === "messages",
     priority: 100,
@@ -201,15 +216,28 @@ function EditorRoute(props: { api: TuiPluginApi; params?: Record<string, unknown
   const rightActive = () => column() === "editor"
   return (
     <box width={dimensions().width} height={dimensions().height} backgroundColor={skin.background} flexDirection="column" paddingLeft={2} paddingRight={2} paddingTop={1} paddingBottom={1}>
-      <box flexDirection="row" justifyContent="space-between" paddingBottom={1}>
+      <box flexDirection="row" justifyContent="space-between">
         <text fg={skin.text}><b>Edit AI messages</b></text>
         <text fg={skin.textMuted}>{editing() ? "Ctrl+S/Esc save · Enter newline · Ctrl+C exit" : "↑/↓ select · ←/→ switch · Enter edit · R restore · Esc exit · Ctrl+C exit"}</text>
       </box>
-      <text fg={skin.warning} paddingBottom={1}>Warning: edits change the persisted transcript only. They do not regenerate or alter subsequent model context.</text>
+      <text fg={skin.warning}>Edits update the stored transcript. They do not rerun prior responses or revise messages already generated.</text>
+      <input
+        ref={(value) => (searchInput = value)}
+        onInput={(value) => {
+          setSearch(value)
+          setMessageIndex(0)
+          setPartIndex(0)
+        }}
+        placeholder="Search final responses"
+        placeholderColor={skin.textMuted}
+        focusedBackgroundColor={skin.backgroundElement}
+        focusedTextColor={skin.text}
+        cursorColor={skin.primary}
+      />
       <box flexDirection="row" flexGrow={1} gap={1}>
         <box width={Math.min(30, Math.max(22, Math.floor(dimensions().width * 0.26)))} flexDirection="column" border borderColor={leftActive() ? skin.borderActive : skin.border} paddingLeft={1} paddingRight={1} backgroundColor={leftActive() ? undefined : skin.backgroundPanel}>
-          <text fg={leftActive() ? skin.primary : skin.textMuted} paddingBottom={1}>Final responses ({messages().length})</text>
-          {messages().length ? <scrollbox flexGrow={1}>{messages().map((message, index) => <box backgroundColor={index === messageIndex() && leftActive() ? skin.primary : undefined}><text wrapMode="none" fg={index === messageIndex() && leftActive() ? skin.selectedListItemText : skin.textMuted}>{index + 1}. {messagePreview(message)}</text></box>)}</scrollbox> : <text fg={skin.textMuted}>No assistant messages in this session.</text>}
+          <text fg={leftActive() ? skin.primary : skin.textMuted}>Final responses ({filteredMessages().length}{search() ? `/${messages().length}` : ""})</text>
+          {filteredMessages().length ? <scrollbox flexGrow={1}>{filteredMessages().map((message, index) => <box backgroundColor={index === messageIndex() && leftActive() ? skin.primary : undefined}><text wrapMode="none" fg={index === messageIndex() && leftActive() ? skin.selectedListItemText : skin.textMuted}>{index + 1}. {messagePreview(message)}</text></box>)}</scrollbox> : <text fg={skin.textMuted}>No matching final responses.</text>}
         </box>
         <box flexGrow={1} flexDirection="column" border borderColor={rightActive() ? skin.borderActive : skin.border} paddingLeft={2} paddingRight={2} backgroundColor={rightActive() ? undefined : skin.backgroundPanel}>
           <text fg={rightActive() ? skin.primary : skin.textMuted} paddingBottom={1}>Response elements</text>
