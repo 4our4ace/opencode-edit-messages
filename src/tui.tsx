@@ -1,19 +1,21 @@
 /** @jsxImportSource @opentui/solid */
-import { createMemo, createSignal, onCleanup, onMount } from "solid-js"
+import { createEffect, createMemo, createSignal, onCleanup } from "solid-js"
 import { useTerminalDimensions } from "@opentui/solid"
 import { useBindings } from "@opentui/keymap/solid"
+import type { TextareaRenderable } from "@opentui/core"
 import type { Message, Part } from "@opencode-ai/sdk/v2"
 import type { TuiPlugin, TuiPluginApi, TuiPluginModule } from "@opencode-ai/plugin/tui"
-import { assistantMessages, editableParts, partLabel, preview, type EditablePart } from "./utils.js"
+import { assistantMessages, editableParts, finalResponseParts, partLabel, preview, type EditablePart } from "./utils.js"
 
 const routeName = "opencode-edit-messages"
-const modeName = "opencode-edit-messages"
 const command = {
   open: "opencode-edit-messages.open",
   close: "opencode-edit-messages.close",
   previous: "opencode-edit-messages.previous",
   next: "opencode-edit-messages.next",
-  edit: "opencode-edit-messages.edit",
+  focusLeft: "opencode-edit-messages.focus-left",
+  focusRight: "opencode-edit-messages.focus-right",
+  save: "opencode-edit-messages.save",
 }
 
 type RouteParams = { sessionID?: string }
@@ -21,23 +23,29 @@ type RouteParams = { sessionID?: string }
 const currentSessionID = (api: TuiPluginApi) =>
   api.route.current.name === "session" ? api.route.current.params?.sessionID : undefined
 
-function MessageEditor(props: { api: TuiPluginApi; sessionID: string; parts: EditablePart[]; onClose: () => void }) {
-  const [draft, setDraft] = createSignal(Object.fromEntries(props.parts.map((part) => [part.id, part.text])))
+function InlineEditor(props: {
+  api: TuiPluginApi
+  sessionID: string
+  parts: () => EditablePart[]
+  onReady: (textarea: TextareaRenderable | undefined) => void
+}) {
+  const [draft, setDraft] = createSignal<Record<string, string>>({})
   const [saving, setSaving] = createSignal(false)
-  const areas = new Map<string, { plainText: string; focus: () => void; isDestroyed?: boolean }>()
+  const areas = new Map<string, TextareaRenderable>()
 
-  onMount(() => {
+  createEffect(() => {
+    const parts = props.parts()
+    setDraft(Object.fromEntries(parts.map((part) => [part.id, part.text])))
     setTimeout(() => {
-      const first = areas.get(props.parts[0]?.id ?? "")
-      if (first && !first.isDestroyed) first.focus()
-    }, 1)
+      for (const part of parts) areas.get(part.id)?.setText(part.text)
+    }, 0)
   })
 
   const save = async () => {
     if (saving()) return
     setSaving(true)
     try {
-      const changed = props.parts.filter((part) => draft()[part.id] !== part.text)
+      const changed = props.parts().filter((part) => draft()[part.id] !== part.text)
       for (const part of changed) {
         const result = await props.api.client.part.update({
           sessionID: props.sessionID,
@@ -47,12 +55,7 @@ function MessageEditor(props: { api: TuiPluginApi; sessionID: string; parts: Edi
         })
         if (result.error) throw result.error
       }
-      props.api.ui.toast({
-        variant: "success",
-        title: "Response updated",
-        message: changed.length ? `Updated ${changed.length} transcript part${changed.length === 1 ? "" : "s"}.` : "No changes to save.",
-      })
-      props.onClose()
+      props.api.ui.toast({ variant: "success", title: "Response updated", message: changed.length ? `Updated ${changed.length} transcript part${changed.length === 1 ? "" : "s"}.` : "No changes to save." })
     } catch (error) {
       props.api.ui.toast({
         variant: "error",
@@ -67,16 +70,14 @@ function MessageEditor(props: { api: TuiPluginApi; sessionID: string; parts: Edi
   useBindings(() => ({
     enabled: () => !saving(),
     priority: 1,
-    commands: [{ name: "opencode-edit-messages.save", run: () => void save() }],
-    bindings: [{ key: "ctrl+s", cmd: "opencode-edit-messages.save", desc: "Save response" }],
+    commands: [{ name: command.save, run: () => void save() }],
+    bindings: [{ key: "ctrl+s", cmd: command.save, desc: "Save response" }],
   }))
 
   return (
     <box flexDirection="column" gap={1} paddingLeft={2} paddingRight={2} paddingTop={1} paddingBottom={1}>
-      <text fg={props.api.theme.current.text}><b>Edit AI response</b></text>
-      <text fg={props.api.theme.current.warning}>Edits change the persisted transcript only. They do not regenerate or alter subsequent model context.</text>
       {(["text", "reasoning"] as const).map((type) => {
-        const parts = props.parts.filter((part) => part.type === type)
+        const parts = props.parts().filter((part) => part.type === type)
         if (!parts.length) return null
         return (
           <box flexDirection="column" gap={1}>
@@ -85,7 +86,10 @@ function MessageEditor(props: { api: TuiPluginApi; sessionID: string; parts: Edi
               <box flexDirection="column" gap={1}>
                 {parts.length > 1 ? <text fg={props.api.theme.current.textMuted}>{partLabel(part, index, parts.length)}</text> : null}
                 <textarea
-                  ref={(value) => areas.set(part.id, value)}
+                  ref={(value) => {
+                    areas.set(part.id, value)
+                    if (part.id === props.parts()[0]?.id) props.onReady(value)
+                  }}
                   initialValue={part.text}
                   width="100%"
                   minHeight={type === "text" ? 8 : 5}
@@ -103,7 +107,7 @@ function MessageEditor(props: { api: TuiPluginApi; sessionID: string; parts: Edi
           </box>
         )
       })}
-      <text fg={props.api.theme.current.textMuted}>{saving() ? "Saving…" : "Ctrl+S save · Esc cancel · Enter inserts a newline"}</text>
+      <text fg={props.api.theme.current.textMuted}>{saving() ? "Saving…" : "Ctrl+S saves changes · Enter inserts a newline"}</text>
     </box>
   )
 }
@@ -113,10 +117,8 @@ function EditorRoute(props: { api: TuiPluginApi; params?: Record<string, unknown
   const sessionID = typeof props.params?.sessionID === "string" ? props.params.sessionID : ""
   const [revision, setRevision] = createSignal(0)
   const [messageIndex, setMessageIndex] = createSignal(0)
-  onMount(() => {
-    const popMode = props.api.mode.push(modeName)
-    onCleanup(popMode)
-  })
+  const [column, setColumn] = createSignal<"messages" | "editor">("messages")
+  let editor: TextareaRenderable | undefined
 
   const refresh = () => setRevision((value) => value + 1)
   const unsubs = [
@@ -127,43 +129,51 @@ function EditorRoute(props: { api: TuiPluginApi; params?: Record<string, unknown
   ]
   onCleanup(() => unsubs.forEach((unsubscribe) => unsubscribe()))
 
+  const messageParts = (message: Message) => editableParts(props.api.state.part(message.id) as readonly Part[])
+  const finalParts = (message: Message) => finalResponseParts(props.api.state.part(message.id) as readonly Part[])
   const messages = createMemo(() => {
     revision()
-    return assistantMessages(props.api.state.session.messages(sessionID) as readonly Message[])
+    return assistantMessages(props.api.state.session.messages(sessionID) as readonly Message[]).filter((message) => finalParts(message).length > 0)
   })
   const selectedMessage = createMemo(() => messages()[Math.min(messageIndex(), Math.max(0, messages().length - 1))])
   const parts = createMemo(() => {
     revision()
     const message = selectedMessage()
-    return message ? editableParts(props.api.state.part(message.id) as readonly Part[]) : []
+    return message
+      ? messageParts(message).filter(
+          (part) => part.type === "reasoning" || (part.type === "text" && part.ignored !== true && part.synthetic !== true),
+        )
+      : []
   })
-  const messageParts = (message: Message) => editableParts(props.api.state.part(message.id) as readonly Part[])
   const messagePreview = (message: Message) => {
-    const text = messageParts(message)
-      .filter((part) => part.type === "text")
+    const text = finalParts(message)
       .map((part) => part.text)
       .join(" ")
-    return preview(text || "(reasoning only)", 26)
+    return preview(text, 26)
   }
   const moveMessage = (amount: number) => {
     const count = messages().length
     if (!count) return
     setMessageIndex((index) => Math.max(0, Math.min(count - 1, index + amount)))
   }
-  const openMessage = () => {
+  const focusEditor = () => {
     if (!parts().length) return
-    props.api.ui.dialog.setSize("xlarge")
-    props.api.ui.dialog.replace(() => <MessageEditor api={props.api} sessionID={sessionID} parts={parts()} onClose={() => props.api.ui.dialog.clear()} />)
+    setColumn("editor")
+    setTimeout(() => editor?.focus(), 0)
+  }
+  const focusMessages = () => {
+    editor?.blur()
+    setColumn("messages")
   }
 
   useBindings(() => ({
-    mode: modeName,
-    enabled: () => !props.api.ui.dialog.open,
+    enabled: () => props.api.route.current.name === routeName && column() === "messages",
+    priority: 1,
     commands: [
       { name: command.close, run: () => props.api.route.navigate("session", { sessionID }) },
       { name: command.previous, run: () => moveMessage(-1) },
       { name: command.next, run: () => moveMessage(1) },
-      { name: command.edit, run: openMessage },
+      { name: command.focusRight, run: focusEditor },
     ],
     bindings: [
       { key: "escape", cmd: command.close, desc: "Return to session" },
@@ -171,9 +181,16 @@ function EditorRoute(props: { api: TuiPluginApi; params?: Record<string, unknown
       { key: "k", cmd: command.previous, desc: "Previous response" },
       { key: "down", cmd: command.next, desc: "Next response" },
       { key: "j", cmd: command.next, desc: "Next response" },
-      { key: "right", cmd: command.edit, desc: "Edit response" },
-      { key: "return", cmd: command.edit, desc: "Edit response" },
+      { key: "right", cmd: command.focusRight, desc: "Focus editor" },
+      { key: "return", cmd: command.focusRight, desc: "Focus editor" },
     ],
+  }))
+
+  useBindings(() => ({
+    enabled: () => props.api.route.current.name === routeName && column() === "editor",
+    priority: 1,
+    commands: [{ name: command.focusLeft, run: focusMessages }],
+    bindings: [{ key: "left", cmd: command.focusLeft, desc: "Focus messages" }],
   }))
 
   const skin = props.api.theme.current
@@ -181,17 +198,18 @@ function EditorRoute(props: { api: TuiPluginApi; params?: Record<string, unknown
     <box width={dimensions().width} height={dimensions().height} backgroundColor={skin.background} flexDirection="column" paddingLeft={2} paddingRight={2} paddingTop={1} paddingBottom={1}>
       <box flexDirection="row" justifyContent="space-between" paddingBottom={1}>
         <text fg={skin.text}><b>Edit AI messages</b></text>
-        <text fg={skin.textMuted}>Esc return · ↑/↓ select · → or Enter edit</text>
+        <text fg={skin.textMuted}>Esc return · ↑/↓ select · ←/→ switch columns · Ctrl+S save</text>
       </box>
       <text fg={skin.warning} paddingBottom={1}>Warning: edits change the persisted transcript only. They do not regenerate or alter subsequent model context.</text>
       <box flexDirection="row" flexGrow={1} gap={1}>
-        <box width={Math.min(30, Math.max(22, Math.floor(dimensions().width * 0.26)))} flexDirection="column" border borderColor={skin.borderActive} paddingLeft={1} paddingRight={1}>
-          <text fg={skin.primary} paddingBottom={1}>Assistant messages ({messages().length})</text>
+        <box width={Math.min(30, Math.max(22, Math.floor(dimensions().width * 0.26)))} flexDirection="column" border borderColor={column() === "messages" ? skin.borderActive : skin.border} paddingLeft={1} paddingRight={1}>
+          <text fg={skin.primary} paddingBottom={1}>Final responses ({messages().length})</text>
            {messages().length ? messages().map((message, index) => <box backgroundColor={index === messageIndex() ? skin.primary : undefined}><text fg={index === messageIndex() ? skin.selectedListItemText : skin.textMuted}> {index === messageIndex() ? "›" : " "} {messagePreview(message)}</text></box>) : <text fg={skin.textMuted}>No assistant messages in this session.</text>}
         </box>
-        <box flexGrow={1} flexDirection="column" border borderColor={skin.border} paddingLeft={2} paddingRight={2}>
-          <text fg={skin.primary} paddingBottom={1}>Selected response</text>
-          {parts().length ? <box flexDirection="column" gap={1}><text fg={skin.text}>{preview(parts().filter((part) => part.type === "text").map((part) => part.text).join(" "), 120)}</text>{parts().some((part) => part.type === "reasoning") ? <text fg={skin.textMuted}>Includes reasoning · edit it within this response.</text> : null}<text fg={skin.textMuted}>Press → or Enter to edit the final response and its reasoning together.</text></box> : <text fg={skin.textMuted}>This assistant message has no editable response or reasoning.</text>}
+        <box flexGrow={1} flexDirection="column" border borderColor={column() === "editor" ? skin.borderActive : skin.border} paddingLeft={2} paddingRight={2}>
+          <text fg={skin.primary} paddingBottom={1}>Response editor</text>
+          <text fg={skin.warning} paddingBottom={1}>Transcript edits do not regenerate or change later model context.</text>
+          {selectedMessage() ? <InlineEditor api={props.api} sessionID={sessionID} parts={parts} onReady={(textarea) => (editor = textarea)} /> : <text fg={skin.textMuted}>Select a final response to edit it and its reasoning.</text>}
         </box>
       </box>
     </box>

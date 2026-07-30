@@ -6,6 +6,8 @@ export type EditablePart = {
   sessionID: string
   type: "text" | "reasoning"
   text: string
+  ignored?: boolean
+  synthetic?: boolean
   [key: string]: unknown
 }
 
@@ -20,6 +22,11 @@ export const editableParts = (parts: readonly { type: string }[]): EditablePart[
       "messageID" in part &&
       "sessionID" in part &&
       "text" in part,
+  )
+
+export const finalResponseParts = (parts: readonly { type: string }[]) =>
+  editableParts(parts).filter(
+    (part) => part.type === "text" && part.text.trim().length > 0 && part.ignored !== true && part.synthetic !== true,
   )
 
 export const partLabel = (part: EditablePart, index: number, total: number) => {
