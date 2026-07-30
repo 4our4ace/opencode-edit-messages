@@ -13,7 +13,7 @@
     }
   },
   "scripts": {
-    "build": "tsc",
+    "build": "rm -rf dist && tsc --emitDeclarationOnly && bun scripts/build.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },

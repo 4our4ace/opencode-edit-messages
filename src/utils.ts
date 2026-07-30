@@ -35,6 +35,16 @@ export const partLabel = (part: EditablePart, index: number, total: number) => {
 }
 
 export const preview = (text: string, width = 54) => {
-  const normalized = text.replace(/\s+/g, " ").trim()
+  const normalized = text
+    .replace(/```[^\n]*\n([\s\S]*?)```/g, "$1")
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/(?:\*\*|__|~~|\*|_)/g, "")
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+    .replace(/^\s*[-+*]\s+/gm, "")
+    .replace(/^\s*\d+[.)]\s+/gm, "")
+    .replace(/\s+/g, " ")
+    .trim()
   return normalized.length > width ? `${normalized.slice(0, Math.max(0, width - 1))}…` : normalized || "(empty)"
 }

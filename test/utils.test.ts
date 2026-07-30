@@ -28,5 +28,6 @@ test("uses only visible final text parts for the response list", () => {
 
 test("creates a compact single-line preview", () => {
   expect(preview("  one\n two  ")).toBe("one two")
+  expect(preview("**Bold** [link](https://example.com) and `code`")).toBe("Bold link and code")
   expect(preview("abcdef", 4)).toBe("abc…")
 })

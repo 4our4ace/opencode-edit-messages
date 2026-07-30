@@ -65,12 +65,6 @@ function EditorRoute(props: { api: TuiPluginApi; params?: Record<string, unknown
     return [...editable.filter((part) => part.type === "text"), ...editable.filter((part) => part.type === "reasoning")]
   })
   const selectedPart = createMemo(() => parts()[Math.min(partIndex(), Math.max(0, parts().length - 1))])
-  const visibleMessages = createMemo(() => {
-    const all = messages()
-    const selected = Math.min(messageIndex(), Math.max(0, all.length - 1))
-    const start = Math.max(0, Math.min(selected - 4, Math.max(0, all.length - 9)))
-    return all.slice(start, start + 9).map((message, offset) => ({ message, index: start + offset }))
-  })
 
   createEffect(() => {
     for (const part of parts()) {
@@ -203,7 +197,7 @@ function EditorRoute(props: { api: TuiPluginApi; params?: Record<string, unknown
       <box flexDirection="row" flexGrow={1} gap={1}>
         <box width={Math.min(30, Math.max(22, Math.floor(dimensions().width * 0.26)))} flexDirection="column" border borderColor={column() === "messages" ? skin.borderActive : skin.border} paddingLeft={1} paddingRight={1}>
           <text fg={skin.primary} paddingBottom={1}>Final responses ({messages().length})</text>
-          {messages().length ? visibleMessages().map(({ message, index }) => <box backgroundColor={index === messageIndex() ? skin.primary : undefined}><text fg={index === messageIndex() ? skin.selectedListItemText : skin.textMuted}> {index === messageIndex() ? "›" : " "} {index + 1}. {messagePreview(message)}</text></box>) : <text fg={skin.textMuted}>No assistant messages in this session.</text>}
+          {messages().length ? <scrollbox flexGrow={1}>{messages().map((message, index) => <box backgroundColor={index === messageIndex() ? skin.primary : undefined}><text fg={index === messageIndex() ? skin.selectedListItemText : skin.textMuted}> {index === messageIndex() ? "›" : " "} {index + 1}. {messagePreview(message)}</text></box>)}</scrollbox> : <text fg={skin.textMuted}>No assistant messages in this session.</text>}
         </box>
         <box flexGrow={1} flexDirection="column" border borderColor={column() === "editor" ? skin.borderActive : skin.border} paddingLeft={2} paddingRight={2}>
           <text fg={skin.primary} paddingBottom={1}>Response elements</text>
