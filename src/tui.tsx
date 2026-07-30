@@ -187,6 +187,8 @@ function EditorRoute(props: { api: TuiPluginApi; params?: Record<string, unknown
   }))
 
   const skin = props.api.theme.current
+  const leftActive = () => column() === "messages"
+  const rightActive = () => column() === "editor"
   return (
     <box width={dimensions().width} height={dimensions().height} backgroundColor={skin.background} flexDirection="column" paddingLeft={2} paddingRight={2} paddingTop={1} paddingBottom={1}>
       <box flexDirection="row" justifyContent="space-between" paddingBottom={1}>
@@ -195,16 +197,16 @@ function EditorRoute(props: { api: TuiPluginApi; params?: Record<string, unknown
       </box>
       <text fg={skin.warning} paddingBottom={1}>Warning: edits change the persisted transcript only. They do not regenerate or alter subsequent model context.</text>
       <box flexDirection="row" flexGrow={1} gap={1}>
-        <box width={Math.min(30, Math.max(22, Math.floor(dimensions().width * 0.26)))} flexDirection="column" border borderColor={column() === "messages" ? skin.borderActive : skin.border} paddingLeft={1} paddingRight={1}>
-          <text fg={skin.primary} paddingBottom={1}>Final responses ({messages().length})</text>
-          {messages().length ? <scrollbox flexGrow={1}>{messages().map((message, index) => <box backgroundColor={index === messageIndex() ? skin.primary : undefined}><text fg={index === messageIndex() ? skin.selectedListItemText : skin.textMuted}> {index === messageIndex() ? "›" : " "} {index + 1}. {messagePreview(message)}</text></box>)}</scrollbox> : <text fg={skin.textMuted}>No assistant messages in this session.</text>}
+        <box width={Math.min(30, Math.max(22, Math.floor(dimensions().width * 0.26)))} flexDirection="column" border borderColor={leftActive() ? skin.borderActive : skin.border} paddingLeft={1} paddingRight={1} backgroundColor={leftActive() ? undefined : skin.backgroundPanel}>
+          <text fg={leftActive() ? skin.primary : skin.textMuted} paddingBottom={1}>Final responses ({messages().length})</text>
+          {messages().length ? <scrollbox flexGrow={1}>{messages().map((message, index) => <box backgroundColor={index === messageIndex() && leftActive() ? skin.primary : undefined}><text wrapMode="none" fg={index === messageIndex() && leftActive() ? skin.selectedListItemText : skin.textMuted}>{index + 1}. {messagePreview(message)}</text></box>)}</scrollbox> : <text fg={skin.textMuted}>No assistant messages in this session.</text>}
         </box>
-        <box flexGrow={1} flexDirection="column" border borderColor={column() === "editor" ? skin.borderActive : skin.border} paddingLeft={2} paddingRight={2}>
-          <text fg={skin.primary} paddingBottom={1}>Response elements</text>
+        <box flexGrow={1} flexDirection="column" border borderColor={rightActive() ? skin.borderActive : skin.border} paddingLeft={2} paddingRight={2} backgroundColor={rightActive() ? undefined : skin.backgroundPanel}>
+          <text fg={rightActive() ? skin.primary : skin.textMuted} paddingBottom={1}>Response elements</text>
           {selectedMessage() ? <>
-            <box flexDirection="column" paddingBottom={1}>{parts().map((part, index) => <box backgroundColor={index === partIndex() ? skin.primary : undefined}><text fg={index === partIndex() ? skin.selectedListItemText : skin.textMuted}> {index === partIndex() ? "›" : " "} {elementLabel(part, index)}</text></box>)}</box>
+            <box flexDirection="column" paddingBottom={1}>{parts().map((part, index) => <box backgroundColor={index === partIndex() && rightActive() ? skin.primary : undefined}><text fg={index === partIndex() && rightActive() ? skin.selectedListItemText : skin.textMuted}>{elementLabel(part, index)}</text></box>)}</box>
             <text fg={skin.textMuted} paddingBottom={1}>{editing() ? "Editing selected element" : "Preview (press Enter to edit)"}</text>
-            {editing() && selectedPart() ? <textarea ref={(value) => (textarea = value)} initialValue={draft()} width="100%" flexGrow={1} minHeight={8} wrapMode="word" textColor={skin.text} focusedTextColor={skin.text} backgroundColor={skin.backgroundElement} focusedBackgroundColor={skin.backgroundElement} cursorColor={skin.primary} onContentChange={() => setDraft(textarea?.plainText ?? "")} /> : <box flexGrow={1} minHeight={8} backgroundColor={skin.backgroundElement} paddingLeft={1} paddingRight={1} paddingTop={1}><text fg={skin.text}>{selectedPart()?.text || "(empty)"}</text></box>}
+            {editing() && selectedPart() ? <textarea ref={(value) => (textarea = value)} initialValue={draft()} width="100%" flexGrow={1} minHeight={8} wrapMode="word" textColor={skin.text} focusedTextColor={skin.text} backgroundColor={skin.backgroundElement} focusedBackgroundColor={skin.backgroundElement} cursorColor={skin.primary} onContentChange={() => setDraft(textarea?.plainText ?? "")} /> : <box flexGrow={1} minHeight={8} backgroundColor={skin.backgroundElement} paddingLeft={1} paddingRight={1} paddingTop={1}><text fg={rightActive() ? skin.text : skin.textMuted}>{selectedPart()?.text || "(empty)"}</text></box>}
           </> : <text fg={skin.textMuted}>Select a final response to edit it and its reasoning.</text>}
         </box>
       </box>
