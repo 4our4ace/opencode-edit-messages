@@ -190,7 +190,17 @@ const tui: TuiPlugin = async (api) => {
   }
   api.keymap.registerLayer({
     mode: "base",
-    commands: [{ name: command.open, title: "Edit AI messages", category: "Plugin", namespace: "palette", slashName: "edit-messages", run: open }],
+    commands: [
+      {
+        name: command.open,
+        title: "Edit AI messages",
+        category: "Plugin",
+        namespace: "palette",
+        slashName: "edit-messages",
+        slashAliases: ["editor"],
+        run: open,
+      },
+    ],
     bindings: [{ key: "<leader>e", cmd: command.open, desc: "Edit AI messages" }],
   })
   api.route.register([{ name: routeName, render: ({ params }) => <EditorRoute api={api} params={params} /> }])
