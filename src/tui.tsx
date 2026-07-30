@@ -91,7 +91,13 @@ function EditorRoute(props: { api: TuiPluginApi; params?: Record<string, unknown
     }
   })
 
-  const messagePreview = (message: Message) => preview(finalParts(message).map((part) => part.text).join(" "), 52)
+  const sidebarWidth = createMemo(() => Math.min(30, Math.max(22, Math.floor(dimensions().width * 0.26))))
+  const messagePreview = (message: Message, index: number) => {
+    // Border + horizontal padding consume four cells. The title has two usable
+    // lines after its numbered prefix, so size the truncation from the live pane.
+    const titleWidth = Math.max(10, sidebarWidth() - 4 - `${index + 1}. `.length)
+    return preview(finalParts(message).map((part) => part.text).join(" "), titleWidth * 2)
+  }
   const moveMessage = (amount: number) => {
     const count = filteredMessages().length
     if (!count) return
@@ -235,9 +241,9 @@ function EditorRoute(props: { api: TuiPluginApi; params?: Record<string, unknown
         cursorColor={skin.primary}
       />
       <box flexDirection="row" flexGrow={1} gap={1}>
-        <box width={Math.min(30, Math.max(22, Math.floor(dimensions().width * 0.26)))} flexDirection="column" border borderColor={leftActive() ? skin.borderActive : skin.border} paddingLeft={1} paddingRight={1} backgroundColor={leftActive() ? undefined : skin.backgroundPanel}>
+        <box width={sidebarWidth()} flexDirection="column" border borderColor={leftActive() ? skin.borderActive : skin.border} paddingLeft={1} paddingRight={1} backgroundColor={leftActive() ? undefined : skin.backgroundPanel}>
           <text fg={leftActive() ? skin.primary : skin.textMuted}>Final responses ({filteredMessages().length}{search() ? `/${messages().length}` : ""})</text>
-          {filteredMessages().length ? <scrollbox flexGrow={1}>{filteredMessages().map((message, index) => <box flexDirection="row" backgroundColor={index === messageIndex() && leftActive() ? skin.primary : undefined}><text flexShrink={0} fg={index === messageIndex() && leftActive() ? skin.selectedListItemText : skin.textMuted}>{index + 1}. </text><text flexGrow={1} wrapMode="word" fg={index === messageIndex() && leftActive() ? skin.selectedListItemText : skin.textMuted}>{messagePreview(message)}</text></box>)}</scrollbox> : <text fg={skin.textMuted}>No matching final responses.</text>}
+          {filteredMessages().length ? <scrollbox flexGrow={1}>{filteredMessages().map((message, index) => <box flexDirection="row" backgroundColor={index === messageIndex() && leftActive() ? skin.primary : undefined}><text flexShrink={0} fg={index === messageIndex() && leftActive() ? skin.selectedListItemText : skin.textMuted}>{index + 1}. </text><text flexGrow={1} wrapMode="word" fg={index === messageIndex() && leftActive() ? skin.selectedListItemText : skin.textMuted}>{messagePreview(message, index)}</text></box>)}</scrollbox> : <text fg={skin.textMuted}>No matching final responses.</text>}
         </box>
         <box flexGrow={1} flexDirection="column" border borderColor={rightActive() ? skin.borderActive : skin.border} paddingLeft={2} paddingRight={2} backgroundColor={rightActive() ? undefined : skin.backgroundPanel}>
           <text fg={rightActive() ? skin.primary : skin.textMuted} paddingBottom={1}>Response elements</text>
