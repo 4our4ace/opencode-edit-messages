@@ -91,7 +91,7 @@ function EditorRoute(props: { api: TuiPluginApi; params?: Record<string, unknown
     }
   })
 
-  const messagePreview = (message: Message) => preview(finalParts(message).map((part) => part.text).join(" "), 26)
+  const messagePreview = (message: Message) => preview(finalParts(message).map((part) => part.text).join(" "), 52)
   const moveMessage = (amount: number) => {
     const count = filteredMessages().length
     if (!count) return
