@@ -248,6 +248,7 @@ function EditorRoute(props: { api: TuiPluginApi; params?: Record<string, unknown
   const leftActive = () => column() === "messages"
   const rightActive = () => column() === "editor"
   const textareaTextColor = () => rightActive() ? skin.text : skin.textMuted
+  const singleEditorPart = () => (selectedElement()?.parts.length ?? 0) === 1
   return (
     <box width={dimensions().width} height={dimensions().height} backgroundColor={skin.background} flexDirection="column" paddingLeft={2} paddingRight={2} paddingTop={1} paddingBottom={1}>
       <box flexDirection="row" justifyContent="space-between">
@@ -268,29 +269,31 @@ function EditorRoute(props: { api: TuiPluginApi; params?: Record<string, unknown
         focusedTextColor={skin.text}
         cursorColor={skin.primary}
       />
-      <box flexDirection="row" flexGrow={1} gap={1}>
-        <box width={sidebarWidth()} flexDirection="column" border borderColor={leftActive() ? skin.borderActive : skin.border} paddingLeft={1} paddingRight={1} backgroundColor={leftActive() ? undefined : skin.backgroundPanel}>
+      <box flexDirection="row" flexGrow={1} minHeight={0} overflow="hidden" gap={1}>
+        <box width={sidebarWidth()} minHeight={0} overflow="hidden" flexDirection="column" border borderColor={leftActive() ? skin.borderActive : skin.border} paddingLeft={1} paddingRight={1} backgroundColor={leftActive() ? undefined : skin.backgroundPanel}>
           <text fg={leftActive() ? skin.primary : skin.textMuted}>Final responses ({filteredMessages().length}{search() ? `/${messages().length}` : ""})</text>
           {filteredMessages().length ? <scrollbox flexGrow={1}>{filteredMessages().map((message, index) => <box height={2} flexDirection="row" backgroundColor={index === messageIndex() && leftActive() ? skin.primary : undefined}><text flexShrink={0} fg={index === messageIndex() && leftActive() ? skin.selectedListItemText : skin.textMuted}>{index + 1}. </text><text flexGrow={1} wrapMode="word" fg={index === messageIndex() && leftActive() ? skin.selectedListItemText : skin.textMuted}>{messagePreview(message, index)}</text></box>)}</scrollbox> : <text fg={skin.textMuted}>No matching final responses.</text>}
         </box>
-        <box flexGrow={1} flexDirection="column" border borderColor={rightActive() ? skin.borderActive : skin.border} paddingLeft={2} paddingRight={2} backgroundColor={rightActive() ? undefined : skin.backgroundPanel}>
-          <text fg={rightActive() ? skin.primary : skin.textMuted} paddingBottom={1}>Response elements</text>
+        <box flexGrow={1} minHeight={0} overflow="hidden" flexDirection="column" border borderColor={rightActive() ? skin.borderActive : skin.border} paddingLeft={2} paddingRight={2} backgroundColor={rightActive() ? undefined : skin.backgroundPanel}>
+          <text flexShrink={0} fg={rightActive() ? skin.primary : skin.textMuted} paddingBottom={1}>Response elements</text>
            {selectedMessage() ? <>
-             <box flexDirection="column" paddingBottom={1}>
+             <box flexShrink={0} flexDirection="column" paddingBottom={1}>
                {elements().map((element, index) => {
                  const selected = () => index === partIndex() && rightActive()
                  return <box backgroundColor={selected() ? skin.primary : undefined}><text fg={selected() ? skin.selectedListItemText : skin.textMuted}>{element.label}</text></box>
                })}
              </box>
-             <text fg={skin.textMuted} paddingBottom={1}>{editing() ? "Editing selected element" : "Preview (press Enter to edit)"}</text>
-             <box flexGrow={1} flexDirection="column" gap={1}>
+             <text flexShrink={0} fg={skin.textMuted} paddingBottom={1}>{editing() ? "Editing selected element" : "Preview (press Enter to edit)"}</text>
+             <scrollbox flexGrow={1} flexShrink={1} minHeight={0}>
                {selectedElement()?.parts.map((part, index) => (
-                 <box flexGrow={1} minHeight={8} backgroundColor={skin.backgroundElement} paddingLeft={1} paddingRight={1} paddingTop={1}>
+                 <box height={singleEditorPart() ? undefined : 8} flexGrow={singleEditorPart() ? 1 : 0} flexShrink={singleEditorPart() ? 1 : 0} minHeight={8} overflow="hidden" backgroundColor={skin.backgroundElement} paddingLeft={1} paddingRight={1} paddingTop={1}>
                    <textarea
                      ref={(value) => setTextarea(index, value)}
-                     initialValue={part.text}
-                     width="100%"
-                     flexGrow={1}
+                      initialValue={part.text}
+                      width="100%"
+                      height="100%"
+                      minHeight={0}
+                      flexGrow={1}
                      wrapMode="word"
                      showCursor={editing()}
                      textColor={textareaTextColor()}
@@ -302,7 +305,7 @@ function EditorRoute(props: { api: TuiPluginApi; params?: Record<string, unknown
                    />
                  </box>
                ))}
-             </box>
+             </scrollbox>
            </> : <text fg={skin.textMuted}>Select a final response to edit it and its reasoning.</text>}
         </box>
       </box>
