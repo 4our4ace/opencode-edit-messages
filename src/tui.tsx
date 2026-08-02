@@ -91,6 +91,33 @@ function EditorRoute(props: { api: TuiPluginApi; params?: Record<string, unknown
     }
   })
 
+  const setTextarea = (index: number, textarea: TextareaRenderable) => {
+    textareas[index] = textarea
+    textarea.focusable = editing()
+  }
+
+  createEffect(() => {
+    const isEditing = editing()
+    for (const textarea of textareas) {
+      if (!isEditing) textarea.blur()
+      textarea.focusable = isEditing
+    }
+  })
+
+  // Textareas stay mounted for both preview and editing. `initialValue` only
+  // initializes a textarea once, so explicitly replace their buffers whenever
+  // selection changes instead of leaving a previous element's text rendered.
+  createEffect(() => {
+    const element = selectedElement()
+    const values = element?.parts.map((part) => part.text) ?? []
+    setDrafts(values)
+    textareas.length = values.length
+    setTimeout(() => {
+      if (selectedElement() !== element || editing()) return
+      values.forEach((value, index) => textareas[index]?.setText(value))
+    }, 0)
+  })
+
   const sidebarWidth = createMemo(() => Math.min(30, Math.max(22, Math.floor(dimensions().width * 0.26))))
   const messagePreview = (message: Message, index: number) => {
     // Border + horizontal padding consume four cells. The title has two usable
@@ -125,8 +152,8 @@ function EditorRoute(props: { api: TuiPluginApi; params?: Record<string, unknown
     const element = selectedElement()
     if (!element || saving()) return
     const values = element.parts.map((part) => part.text)
-    textareas = []
     setDrafts(values)
+    values.forEach((value, index) => textareas[index]?.setText(value))
     setEditing(true)
     setTimeout(() => {
       textareas[0]?.focus()
@@ -146,8 +173,8 @@ function EditorRoute(props: { api: TuiPluginApi; params?: Record<string, unknown
         const result = await props.api.client.part.update({ sessionID, messageID: part.messageID, partID: part.id, part: { ...part, text } as Part })
         if (result.error) throw result.error
       }
-      setEditing(false)
       textareas.forEach((textarea) => textarea.blur())
+      setEditing(false)
       refresh()
       props.api.ui.toast({ variant: "success", title: "Response updated", message: changed ? "Transcript parts updated." : "No changes to save." })
     } catch (error) {
@@ -220,6 +247,7 @@ function EditorRoute(props: { api: TuiPluginApi; params?: Record<string, unknown
   const skin = props.api.theme.current
   const leftActive = () => column() === "messages"
   const rightActive = () => column() === "editor"
+  const textareaTextColor = () => rightActive() ? skin.text : skin.textMuted
   return (
     <box width={dimensions().width} height={dimensions().height} backgroundColor={skin.background} flexDirection="column" paddingLeft={2} paddingRight={2} paddingTop={1} paddingBottom={1}>
       <box flexDirection="row" justifyContent="space-between">
@@ -247,11 +275,35 @@ function EditorRoute(props: { api: TuiPluginApi; params?: Record<string, unknown
         </box>
         <box flexGrow={1} flexDirection="column" border borderColor={rightActive() ? skin.borderActive : skin.border} paddingLeft={2} paddingRight={2} backgroundColor={rightActive() ? undefined : skin.backgroundPanel}>
           <text fg={rightActive() ? skin.primary : skin.textMuted} paddingBottom={1}>Response elements</text>
-          {selectedMessage() ? <>
-            <box flexDirection="column" paddingBottom={1}>{elements().map((element, index) => <box backgroundColor={index === partIndex() && rightActive() ? skin.primary : undefined}><text fg={index === partIndex() && rightActive() ? skin.selectedListItemText : skin.textMuted}>{element.label}</text></box>)}</box>
-            <text fg={skin.textMuted} paddingBottom={1}>{editing() ? "Editing selected element" : "Preview (press Enter to edit)"}</text>
-            <box flexGrow={1} flexDirection="column" gap={1}>{selectedElement()?.parts.map((part, index) => <box flexGrow={1} minHeight={8} backgroundColor={skin.backgroundElement} paddingLeft={1} paddingRight={1} paddingTop={1}>{editing() ? <textarea ref={(value) => (textareas[index] = value)} initialValue={drafts()[index] ?? part.text} width="100%" flexGrow={1} wrapMode="word" textColor={skin.text} focusedTextColor={skin.text} backgroundColor={skin.backgroundElement} focusedBackgroundColor={skin.backgroundElement} cursorColor={skin.primary} onContentChange={() => setDrafts((values) => values.map((value, valueIndex) => valueIndex === index ? textareas[index]?.plainText ?? "" : value))} /> : <text fg={rightActive() ? skin.text : skin.textMuted}>{part.text || "(empty)"}</text>}</box>)}</box>
-          </> : <text fg={skin.textMuted}>Select a final response to edit it and its reasoning.</text>}
+           {selectedMessage() ? <>
+             <box flexDirection="column" paddingBottom={1}>
+               {elements().map((element, index) => {
+                 const selected = () => index === partIndex() && rightActive()
+                 return <box backgroundColor={selected() ? skin.primary : undefined}><text fg={selected() ? skin.selectedListItemText : skin.textMuted}>{element.label}</text></box>
+               })}
+             </box>
+             <text fg={skin.textMuted} paddingBottom={1}>{editing() ? "Editing selected element" : "Preview (press Enter to edit)"}</text>
+             <box flexGrow={1} flexDirection="column" gap={1}>
+               {selectedElement()?.parts.map((part, index) => (
+                 <box flexGrow={1} minHeight={8} backgroundColor={skin.backgroundElement} paddingLeft={1} paddingRight={1} paddingTop={1}>
+                   <textarea
+                     ref={(value) => setTextarea(index, value)}
+                     initialValue={part.text}
+                     width="100%"
+                     flexGrow={1}
+                     wrapMode="word"
+                     showCursor={editing()}
+                     textColor={textareaTextColor()}
+                     focusedTextColor={skin.text}
+                     backgroundColor={skin.backgroundElement}
+                     focusedBackgroundColor={skin.backgroundElement}
+                     cursorColor={skin.primary}
+                     onContentChange={() => setDrafts((values) => values.map((value, valueIndex) => valueIndex === index ? textareas[index]?.plainText ?? "" : value))}
+                   />
+                 </box>
+               ))}
+             </box>
+           </> : <text fg={skin.textMuted}>Select a final response to edit it and its reasoning.</text>}
         </box>
       </box>
     </box>
