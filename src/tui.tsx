@@ -101,7 +101,7 @@ function EditorRoute(props: { api: TuiPluginApi; params?: Record<string, unknown
   const moveMessage = (amount: number) => {
     const count = filteredMessages().length
     if (!count) return
-    setMessageIndex((index) => Math.max(0, Math.min(count - 1, index + amount)))
+    setMessageIndex((index) => (index + amount + count) % count)
     setPartIndex(0)
   }
   const movePart = (amount: number) => {
